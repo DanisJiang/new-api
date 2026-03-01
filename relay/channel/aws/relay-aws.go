@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	modelPkg "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel/claude"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -278,6 +279,16 @@ func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (
 		default:
 			fmt.Println("union is nil or unknown type")
 			return types.NewError(errors.New("nil or unknown response type"), types.ErrorCodeInvalidRequest), nil
+		}
+	}
+
+	// Detect empty answer pattern: thinking-only with stop_reason=end_turn.
+	if claudeInfo.StopReason == "end_turn" && claudeInfo.HasThinking && !claudeInfo.HasTextContent {
+		if requestHash, exists := c.Get("request_body_hash"); exists {
+			if hash, ok := requestHash.(string); ok && hash != "" {
+				modelPkg.RecordEmptyAnswer(hash, info.ChannelId, 5*time.Minute)
+				c.Set("empty_answer_detected", true)
+			}
 		}
 	}
 

@@ -7,10 +7,13 @@ import (
 	"net/http"
 	"strings"
 
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	modelPkg "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -538,12 +541,15 @@ func ResponseClaude2OpenAI(claudeResponse *dto.ClaudeResponse) *dto.OpenAITextRe
 }
 
 type ClaudeResponseInfo struct {
-	ResponseId   string
-	Created      int64
-	Model        string
-	ResponseText strings.Builder
-	Usage        *dto.Usage
-	Done         bool
+	ResponseId     string
+	Created        int64
+	Model          string
+	ResponseText   strings.Builder
+	Usage          *dto.Usage
+	Done           bool
+	HasTextContent bool
+	HasThinking    bool
+	StopReason     string
 }
 
 func buildMessageDeltaPatchUsage(claudeResponse *dto.ClaudeResponse, claudeInfo *ClaudeResponseInfo) *dto.ClaudeUsage {
@@ -644,12 +650,21 @@ func FormatClaudeResponseInfo(claudeResponse *dto.ClaudeResponse, oaiResponse *d
 		if claudeResponse.Delta != nil {
 			if claudeResponse.Delta.Text != nil {
 				claudeInfo.ResponseText.WriteString(*claudeResponse.Delta.Text)
+				if *claudeResponse.Delta.Text != "" {
+					claudeInfo.HasTextContent = true
+				}
 			}
 			if claudeResponse.Delta.Thinking != nil {
 				claudeInfo.ResponseText.WriteString(*claudeResponse.Delta.Thinking)
+				if *claudeResponse.Delta.Thinking != "" {
+					claudeInfo.HasThinking = true
+				}
 			}
 		}
 	} else if claudeResponse.Type == "message_delta" {
+		if claudeResponse.Delta != nil && claudeResponse.Delta.StopReason != nil {
+			claudeInfo.StopReason = *claudeResponse.Delta.StopReason
+		}
 		// 最终的usage获取
 		if claudeResponse.Usage != nil {
 			if claudeResponse.Usage.InputTokens > 0 {
@@ -780,6 +795,17 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 		return nil, err
 	}
 
+	// Detect empty answer pattern: thinking-only with stop_reason=end_turn.
+	// Record (request_hash, channel_id) so retry hits a different channel.
+	if claudeInfo.StopReason == "end_turn" && claudeInfo.HasThinking && !claudeInfo.HasTextContent {
+		if requestHash, exists := c.Get("request_body_hash"); exists {
+			if hash, ok := requestHash.(string); ok && hash != "" {
+				modelPkg.RecordEmptyAnswer(hash, info.ChannelId, 5*time.Minute)
+				c.Set("empty_answer_detected", true)
+			}
+		}
+	}
+
 	HandleStreamFinalResponse(c, info, claudeInfo)
 	return claudeInfo.Usage, nil
 }
@@ -821,6 +847,28 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 
 	if claudeResponse.Usage != nil && claudeResponse.Usage.ServerToolUse != nil && claudeResponse.Usage.ServerToolUse.WebSearchRequests > 0 {
 		c.Set("claude_web_search_requests", claudeResponse.Usage.ServerToolUse.WebSearchRequests)
+	}
+
+	// Detect empty answer pattern in non-streaming response.
+	if claudeResponse.StopReason == "end_turn" {
+		hasThinking := false
+		hasTextContent := false
+		for _, block := range claudeResponse.Content {
+			if block.Type == "thinking" {
+				hasThinking = true
+			}
+			if block.Type == "text" && block.Text != nil && *block.Text != "" {
+				hasTextContent = true
+			}
+		}
+		if hasThinking && !hasTextContent {
+			if requestHash, exists := c.Get("request_body_hash"); exists {
+				if hash, ok := requestHash.(string); ok && hash != "" {
+					modelPkg.RecordEmptyAnswer(hash, info.ChannelId, 5*time.Minute)
+					c.Set("empty_answer_detected", true)
+				}
+			}
+		}
 	}
 
 	service.IOCopyBytesGracefully(c, httpResp, responseData)
