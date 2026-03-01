@@ -182,9 +182,7 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, excludedCh
 	}
 
 	if len(channels) == 1 {
-		if isChannelExcluded(channels[0], excludedChannels) {
-			return nil, nil
-		}
+		// If the only channel is excluded, ignore the exclusion (fall back)
 		if channel, ok := channelsIDM[channels[0]]; ok {
 			return channel, nil
 		}
