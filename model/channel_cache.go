@@ -18,6 +18,63 @@ var group2model2channels map[string]map[string][]int // enabled channel
 var channelsIDM map[int]*Channel                     // all channels include disabled
 var channelSyncLock sync.RWMutex
 
+// emptyAnswerCache tracks (request_hash -> channel_ids) for requests where a
+// thinking model returned reasoning but no answer content. When the engine
+// retries with the same request, we exclude those channels from selection.
+var emptyAnswerCache sync.Map // map[string]*emptyAnswerRecord
+
+type emptyAnswerRecord struct {
+	mu       sync.Mutex
+	channels map[int]time.Time // channelID -> expiry
+}
+
+// RecordEmptyAnswer marks a channel as having produced an empty answer for the
+// given request hash. The entry expires after ttl.
+func RecordEmptyAnswer(requestHash string, channelID int, ttl time.Duration) {
+	if requestHash == "" {
+		return
+	}
+	expiry := time.Now().Add(ttl)
+	actual, _ := emptyAnswerCache.LoadOrStore(requestHash, &emptyAnswerRecord{
+		channels: make(map[int]time.Time),
+	})
+	record := actual.(*emptyAnswerRecord)
+	record.mu.Lock()
+	record.channels[channelID] = expiry
+	record.mu.Unlock()
+}
+
+// GetExcludedChannels returns channel IDs that should be skipped for this
+// request hash because they previously produced empty answers. Expired
+// entries are cleaned up lazily.
+func GetExcludedChannels(requestHash string) []int {
+	if requestHash == "" {
+		return nil
+	}
+	val, ok := emptyAnswerCache.Load(requestHash)
+	if !ok {
+		return nil
+	}
+	record := val.(*emptyAnswerRecord)
+	record.mu.Lock()
+	defer record.mu.Unlock()
+
+	now := time.Now()
+	var excluded []int
+	for chID, expiry := range record.channels {
+		if now.Before(expiry) {
+			excluded = append(excluded, chID)
+		} else {
+			delete(record.channels, chID)
+		}
+	}
+	// Clean up empty records
+	if len(record.channels) == 0 {
+		emptyAnswerCache.Delete(requestHash)
+	}
+	return excluded
+}
+
 func InitChannelCache() {
 	if !common.MemoryCacheEnabled {
 		return
