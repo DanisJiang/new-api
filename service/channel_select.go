@@ -76,6 +76,23 @@ func getRequestBodyHash(c *gin.Context) string {
 	return hashStr
 }
 
+// IsChannelExcludedForRequest checks whether a channel should be skipped for
+// this request because it previously produced an empty answer. As a side
+// effect it computes and caches the request body hash so that later detection
+// code in the response handler can record new empty answers.
+func IsChannelExcludedForRequest(c *gin.Context, channelID int) bool {
+	hash := getRequestBodyHash(c)
+	if hash == "" {
+		return false
+	}
+	for _, id := range model.GetExcludedChannels(hash) {
+		if id == channelID {
+			return true
+		}
+	}
+	return false
+}
+
 // CacheGetRandomSatisfiedChannel tries to get a random channel that satisfies the requirements.
 // 尝试获取一个满足要求的随机渠道。
 //
