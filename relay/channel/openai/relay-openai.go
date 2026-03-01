@@ -188,9 +188,49 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 	applyUsagePostProcessing(info, usage, common.StringToByteSlice(lastStreamData))
 
+	// Detect empty answer pattern: finish_reason=stop with reasoning but no answer content.
+	// When a thinking model produces only reasoning and stops without generating any answer,
+	// return an error to trigger the relay retry loop, which selects the next-priority channel.
+	// The retry's SSE data is appended to the existing stream; the client accumulates both.
+	if hasContent, hasReasoning, finishReason := checkEmptyAnswerPattern(streamItems); finishReason == "stop" && !hasContent && hasReasoning {
+		logger.LogWarn(c, fmt.Sprintf("Empty answer: reasoning-only response (prompt=%d, completion=%d), triggering retry on next-priority channel",
+			usage.PromptTokens, usage.CompletionTokens))
+		return usage, types.NewOpenAIError(
+			fmt.Errorf("model produced reasoning but no answer content"),
+			"empty_response_content",
+			http.StatusInternalServerError,
+		)
+	}
+
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
 	return usage, nil
+}
+
+// checkEmptyAnswerPattern scans stream chunks for the pattern where a thinking model
+// produces reasoning_content but no answer content, with finish_reason=stop.
+func checkEmptyAnswerPattern(streamItems []string) (hasContent, hasReasoning bool, finishReason string) {
+	for _, item := range streamItems {
+		var sr dto.ChatCompletionsStreamResponse
+		if err := common.UnmarshalJsonStr(item, &sr); err != nil {
+			continue
+		}
+		for _, choice := range sr.Choices {
+			if choice.Delta.GetContentString() != "" {
+				hasContent = true
+			}
+			if choice.Delta.GetReasoningContent() != "" {
+				hasReasoning = true
+			}
+			if choice.FinishReason != nil && *choice.FinishReason != "" {
+				finishReason = *choice.FinishReason
+			}
+		}
+		if hasContent {
+			return // Short-circuit: content found, no need to check more
+		}
+	}
+	return
 }
 
 func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
