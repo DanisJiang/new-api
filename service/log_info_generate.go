@@ -70,6 +70,13 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 
 	AppendChannelAffinityAdminInfo(ctx, adminInfo)
 
+	if ctx.GetBool("empty_answer_detected") {
+		adminInfo["empty_answer"] = true
+	}
+	if excluded, exists := ctx.Get("empty_answer_excluded_channels"); exists {
+		adminInfo["empty_answer_excluded_channels"] = excluded
+	}
+
 	other["admin_info"] = adminInfo
 	appendRequestPath(ctx, relayInfo, other)
 	appendRequestConversionChain(relayInfo, other)
