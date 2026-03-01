@@ -201,6 +201,18 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		}
 	}
 
+	// Detect duplicate response pattern: same token counts on same channel
+	// within 10 minutes suggests the channel is stuck producing truncated output.
+	if requestHash, exists := c.Get("request_body_hash"); exists {
+		if hash, ok := requestHash.(string); ok && hash != "" {
+			if modelPkg.CheckAndRecordDuplicateResponse(hash, info.ChannelId,
+				usage.PromptTokens, usage.CompletionTokens,
+				2*time.Hour, info.RequestId) {
+				c.Set("duplicate_response_detected", true)
+			}
+		}
+	}
+
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
 	return usage, nil
@@ -298,6 +310,18 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 
 	applyUsagePostProcessing(info, &simpleResponse.Usage, responseBody)
+
+	// Detect duplicate response pattern: same token counts on same channel
+	// within 10 minutes suggests the channel is stuck producing truncated output.
+	if requestHash, exists := c.Get("request_body_hash"); exists {
+		if hash, ok := requestHash.(string); ok && hash != "" {
+			if modelPkg.CheckAndRecordDuplicateResponse(hash, info.ChannelId,
+				simpleResponse.Usage.PromptTokens, simpleResponse.Usage.CompletionTokens,
+				2*time.Hour, info.RequestId) {
+				c.Set("duplicate_response_detected", true)
+			}
+		}
+	}
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:

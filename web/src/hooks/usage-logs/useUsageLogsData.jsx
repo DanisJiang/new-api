@@ -626,6 +626,22 @@ export const useLogsData = () => {
           value: localCountMode,
         });
       }
+      if (isAdminUser && other?.admin_info?.duplicate_response) {
+        const excludedChannels = other.admin_info.empty_answer_excluded_channels;
+        const sourceRequests = other.admin_info.empty_answer_source_requests;
+        let dupValue = t('重复响应检测');
+        if (Array.isArray(excludedChannels) && excludedChannels.length > 0) {
+          const parts = excludedChannels.map((chId) => {
+            const reqId = sourceRequests && sourceRequests[String(chId)];
+            return reqId ? chId + ' ← ' + reqId : String(chId);
+          });
+          dupValue += ' (' + t('已排除渠道') + ': ' + parts.join(', ') + ')';
+        }
+        expandDataLocal.push({
+          key: t('重复响应检测'),
+          value: dupValue,
+        });
+      }
       if (isAdminUser && other?.admin_info?.empty_answer) {
         const excludedChannels = other.admin_info.empty_answer_excluded_channels;
         const sourceRequests = other.admin_info.empty_answer_source_requests;

@@ -73,6 +73,9 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	if ctx.GetBool("empty_answer_detected") {
 		adminInfo["empty_answer"] = true
 	}
+	if ctx.GetBool("duplicate_response_detected") {
+		adminInfo["duplicate_response"] = true
+	}
 	if excluded, exists := ctx.Get("empty_answer_excluded_channels"); exists {
 		adminInfo["empty_answer_excluded_channels"] = excluded
 	}

@@ -806,6 +806,18 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 		}
 	}
 
+	// Detect duplicate response pattern: same token counts on same channel
+	// within 10 minutes suggests the channel is stuck producing truncated output.
+	if requestHash, exists := c.Get("request_body_hash"); exists {
+		if hash, ok := requestHash.(string); ok && hash != "" {
+			if modelPkg.CheckAndRecordDuplicateResponse(hash, info.ChannelId,
+				claudeInfo.Usage.PromptTokens, claudeInfo.Usage.CompletionTokens,
+				2*time.Hour, info.RequestId) {
+				c.Set("duplicate_response_detected", true)
+			}
+		}
+	}
+
 	HandleStreamFinalResponse(c, info, claudeInfo)
 	return claudeInfo.Usage, nil
 }
@@ -867,6 +879,18 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 					modelPkg.RecordEmptyAnswer(hash, info.ChannelId, 2*time.Hour, info.RequestId)
 					c.Set("empty_answer_detected", true)
 				}
+			}
+		}
+	}
+
+	// Detect duplicate response pattern: same token counts on same channel
+	// within 10 minutes suggests the channel is stuck producing truncated output.
+	if requestHash, exists := c.Get("request_body_hash"); exists {
+		if hash, ok := requestHash.(string); ok && hash != "" {
+			if modelPkg.CheckAndRecordDuplicateResponse(hash, info.ChannelId,
+				claudeInfo.Usage.PromptTokens, claudeInfo.Usage.CompletionTokens,
+				2*time.Hour, info.RequestId) {
+				c.Set("duplicate_response_detected", true)
 			}
 		}
 	}

@@ -292,6 +292,18 @@ func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (
 		}
 	}
 
+	// Detect duplicate response pattern: same token counts on same channel
+	// within 10 minutes suggests the channel is stuck producing truncated output.
+	if requestHash, exists := c.Get("request_body_hash"); exists {
+		if hash, ok := requestHash.(string); ok && hash != "" {
+			if modelPkg.CheckAndRecordDuplicateResponse(hash, info.ChannelId,
+				claudeInfo.Usage.PromptTokens, claudeInfo.Usage.CompletionTokens,
+				2*time.Hour, info.RequestId) {
+				c.Set("duplicate_response_detected", true)
+			}
+		}
+	}
+
 	claude.HandleStreamFinalResponse(c, info, claudeInfo)
 	return nil, claudeInfo.Usage
 }

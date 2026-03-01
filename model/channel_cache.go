@@ -23,6 +23,12 @@ var channelSyncLock sync.RWMutex
 // retries with the same request, we exclude those channels from selection.
 var emptyAnswerCache sync.Map // map[string]*emptyAnswerRecord
 
+// duplicateResponseCache tracks token counts per (requestHash:channelId) to
+// detect channels that repeatedly produce the same truncated output. When a
+// second response with identical input+output token counts arrives within 10
+// minutes on the same channel, the channel is excluded for future requests.
+var duplicateResponseCache sync.Map // map[string]*tokenResponseRecord
+
 type emptyAnswerEntry struct {
 	Expiry    time.Time
 	RequestID string
@@ -31,6 +37,13 @@ type emptyAnswerEntry struct {
 type emptyAnswerRecord struct {
 	mu       sync.Mutex
 	channels map[int]*emptyAnswerEntry // channelID -> entry
+}
+
+type tokenResponseRecord struct {
+	InputTokens  int
+	OutputTokens int
+	Timestamp    time.Time
+	RequestID    string
 }
 
 // RecordEmptyAnswer marks a channel as having produced an empty answer for the
@@ -108,6 +121,40 @@ func GetExcludedChannelDetails(requestHash string) map[int]string {
 		return nil
 	}
 	return details
+}
+
+// CheckAndRecordDuplicateResponse checks whether the current response has the
+// same (inputTokens, outputTokens) as a previous response from the same channel
+// for the same request hash within the last 10 minutes. If so, it records the
+// channel exclusion (reusing RecordEmptyAnswer) and returns true.
+func CheckAndRecordDuplicateResponse(requestHash string, channelID int, inputTokens, outputTokens int, ttl time.Duration, sourceRequestID string) bool {
+	if requestHash == "" || outputTokens == 0 {
+		return false
+	}
+
+	key := fmt.Sprintf("%s:%d", requestHash, channelID)
+	now := time.Now()
+
+	if prev, ok := duplicateResponseCache.Load(key); ok {
+		record := prev.(*tokenResponseRecord)
+		if now.Sub(record.Timestamp) <= 10*time.Minute &&
+			record.InputTokens == inputTokens &&
+			record.OutputTokens == outputTokens {
+			// Duplicate detected — exclude this channel
+			RecordEmptyAnswer(requestHash, channelID, ttl, sourceRequestID)
+			return true
+		}
+	}
+
+	// Store/update current response record
+	duplicateResponseCache.Store(key, &tokenResponseRecord{
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		Timestamp:    now,
+		RequestID:    sourceRequestID,
+	})
+
+	return false
 }
 
 func InitChannelCache() {
