@@ -626,6 +626,25 @@ export const useLogsData = () => {
           value: localCountMode,
         });
       }
+      if (isAdminUser && other?.admin_info?.empty_answer) {
+        const excludedChannels = other.admin_info.empty_answer_excluded_channels;
+        let emptyAnswerValue = t('空回复检测');
+        if (Array.isArray(excludedChannels) && excludedChannels.length > 0) {
+          emptyAnswerValue += ' (' + t('已排除渠道') + ': ' + excludedChannels.join(', ') + ')';
+        }
+        expandDataLocal.push({
+          key: t('空回复检测'),
+          value: emptyAnswerValue,
+        });
+      } else if (isAdminUser && other?.admin_info?.empty_answer_excluded_channels) {
+        const excludedChannels = other.admin_info.empty_answer_excluded_channels;
+        if (Array.isArray(excludedChannels) && excludedChannels.length > 0) {
+          expandDataLocal.push({
+            key: t('空回复渠道排除'),
+            value: excludedChannels.join(', '),
+          });
+        }
+      }
       expandDatesLocal[logs[i].key] = expandDataLocal;
     }
 
