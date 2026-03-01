@@ -628,9 +628,14 @@ export const useLogsData = () => {
       }
       if (isAdminUser && other?.admin_info?.empty_answer) {
         const excludedChannels = other.admin_info.empty_answer_excluded_channels;
+        const sourceRequests = other.admin_info.empty_answer_source_requests;
         let emptyAnswerValue = t('空回复检测');
         if (Array.isArray(excludedChannels) && excludedChannels.length > 0) {
-          emptyAnswerValue += ' (' + t('已排除渠道') + ': ' + excludedChannels.join(', ') + ')';
+          const parts = excludedChannels.map((chId) => {
+            const reqId = sourceRequests && sourceRequests[String(chId)];
+            return reqId ? chId + ' ← ' + reqId : String(chId);
+          });
+          emptyAnswerValue += ' (' + t('已排除渠道') + ': ' + parts.join(', ') + ')';
         }
         expandDataLocal.push({
           key: t('空回复检测'),
@@ -638,10 +643,15 @@ export const useLogsData = () => {
         });
       } else if (isAdminUser && other?.admin_info?.empty_answer_excluded_channels) {
         const excludedChannels = other.admin_info.empty_answer_excluded_channels;
+        const sourceRequests = other.admin_info.empty_answer_source_requests;
         if (Array.isArray(excludedChannels) && excludedChannels.length > 0) {
+          const parts = excludedChannels.map((chId) => {
+            const reqId = sourceRequests && sourceRequests[String(chId)];
+            return reqId ? chId + ' ← ' + reqId : String(chId);
+          });
           expandDataLocal.push({
             key: t('空回复渠道排除'),
-            value: excludedChannels.join(', '),
+            value: parts.join(', '),
           });
         }
       }

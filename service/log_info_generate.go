@@ -76,6 +76,9 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	if excluded, exists := ctx.Get("empty_answer_excluded_channels"); exists {
 		adminInfo["empty_answer_excluded_channels"] = excluded
 	}
+	if sourceReqs, exists := ctx.Get("empty_answer_source_requests"); exists {
+		adminInfo["empty_answer_source_requests"] = sourceReqs
+	}
 
 	other["admin_info"] = adminInfo
 	appendRequestPath(ctx, relayInfo, other)

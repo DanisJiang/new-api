@@ -138,6 +138,10 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 	excludedChannels := model.GetExcludedChannels(requestHash)
 	if len(excludedChannels) > 0 {
 		param.Ctx.Set("empty_answer_excluded_channels", excludedChannels)
+		// Also store source request IDs for UI display
+		if details := model.GetExcludedChannelDetails(requestHash); details != nil {
+			param.Ctx.Set("empty_answer_source_requests", details)
+		}
 	}
 
 	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)

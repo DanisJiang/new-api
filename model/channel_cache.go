@@ -23,24 +23,32 @@ var channelSyncLock sync.RWMutex
 // retries with the same request, we exclude those channels from selection.
 var emptyAnswerCache sync.Map // map[string]*emptyAnswerRecord
 
+type emptyAnswerEntry struct {
+	Expiry    time.Time
+	RequestID string
+}
+
 type emptyAnswerRecord struct {
 	mu       sync.Mutex
-	channels map[int]time.Time // channelID -> expiry
+	channels map[int]*emptyAnswerEntry // channelID -> entry
 }
 
 // RecordEmptyAnswer marks a channel as having produced an empty answer for the
-// given request hash. The entry expires after ttl.
-func RecordEmptyAnswer(requestHash string, channelID int, ttl time.Duration) {
+// given request hash. The entry expires after ttl. sourceRequestID is the
+// request that triggered the recording, shown in the UI for debugging.
+func RecordEmptyAnswer(requestHash string, channelID int, ttl time.Duration, sourceRequestID string) {
 	if requestHash == "" {
 		return
 	}
-	expiry := time.Now().Add(ttl)
 	actual, _ := emptyAnswerCache.LoadOrStore(requestHash, &emptyAnswerRecord{
-		channels: make(map[int]time.Time),
+		channels: make(map[int]*emptyAnswerEntry),
 	})
 	record := actual.(*emptyAnswerRecord)
 	record.mu.Lock()
-	record.channels[channelID] = expiry
+	record.channels[channelID] = &emptyAnswerEntry{
+		Expiry:    time.Now().Add(ttl),
+		RequestID: sourceRequestID,
+	}
 	record.mu.Unlock()
 }
 
@@ -61,8 +69,8 @@ func GetExcludedChannels(requestHash string) []int {
 
 	now := time.Now()
 	var excluded []int
-	for chID, expiry := range record.channels {
-		if now.Before(expiry) {
+	for chID, entry := range record.channels {
+		if now.Before(entry.Expiry) {
 			excluded = append(excluded, chID)
 		} else {
 			delete(record.channels, chID)
@@ -73,6 +81,33 @@ func GetExcludedChannels(requestHash string) []int {
 		emptyAnswerCache.Delete(requestHash)
 	}
 	return excluded
+}
+
+// GetExcludedChannelDetails returns a map of channelID -> sourceRequestID for
+// channels that should be excluded. Used for UI display.
+func GetExcludedChannelDetails(requestHash string) map[int]string {
+	if requestHash == "" {
+		return nil
+	}
+	val, ok := emptyAnswerCache.Load(requestHash)
+	if !ok {
+		return nil
+	}
+	record := val.(*emptyAnswerRecord)
+	record.mu.Lock()
+	defer record.mu.Unlock()
+
+	now := time.Now()
+	details := make(map[int]string)
+	for chID, entry := range record.channels {
+		if now.Before(entry.Expiry) {
+			details[chID] = entry.RequestID
+		}
+	}
+	if len(details) == 0 {
+		return nil
+	}
+	return details
 }
 
 func InitChannelCache() {
