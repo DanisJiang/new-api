@@ -716,6 +716,25 @@ export const getLogsColumns = ({
               let useChannelStr = useChannel.join('->');
               content = t('渠道') + `：${useChannelStr}`;
             }
+            if (other.admin_info.empty_answer) {
+              return isAdminUser ? (
+                <div>
+                  {content}
+                  <br />
+                  <Tag color='red' size='small'>{t('空回复')}</Tag>
+                </div>
+              ) : <></>;
+            }
+            if (other.admin_info.empty_answer_excluded_channels) {
+              const excluded = other.admin_info.empty_answer_excluded_channels;
+              return isAdminUser ? (
+                <div>
+                  {content}
+                  <br />
+                  <Tag color='orange' size='small'>{t('已排除')}: {Array.isArray(excluded) ? excluded.join(',') : excluded}</Tag>
+                </div>
+              ) : <></>;
+            }
           }
         }
         return isAdminUser ? <div>{content}</div> : <></>;
