@@ -5,11 +5,13 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	modelPkg "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -187,6 +189,18 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	}
 
 	applyUsagePostProcessing(info, usage, common.StringToByteSlice(lastStreamData))
+
+	// Detect empty answer pattern: reasoning-only with finish_reason=stop.
+	// Record (request_hash, channel_id) so the engine's retry hits a different channel.
+	if hasContent, hasReasoning, finishReason := checkEmptyAnswerPattern(streamItems); finishReason == "stop" && !hasContent && hasReasoning {
+		if requestHash, exists := c.Get("request_body_hash"); exists {
+			if hash, ok := requestHash.(string); ok && hash != "" {
+				modelPkg.RecordEmptyAnswer(hash, info.ChannelId, 5*time.Minute)
+				logger.LogWarn(c, fmt.Sprintf("Empty answer detected on channel #%d: reasoning-only response (prompt=%d, completion=%d), channel excluded for this request",
+					info.ChannelId, usage.PromptTokens, usage.CompletionTokens))
+			}
+		}
+	}
 
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
