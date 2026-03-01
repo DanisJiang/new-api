@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 type RetryParam struct {
@@ -47,8 +48,10 @@ func (p *RetryParam) ResetRetryNextTry() {
 	p.resetNextTry = true
 }
 
-// getRequestBodyHash computes and caches the SHA256 hash of the request body.
-// Returns empty string if the body is unavailable.
+// getRequestBodyHash computes and caches a SHA256 hash based on the "messages"
+// field of the request body. Only the messages content is hashed so that
+// retries with different parameters (stream, temperature, etc.) still produce
+// the same hash. Falls back to the full body if "messages" is absent.
 func getRequestBodyHash(c *gin.Context) string {
 	if hash, exists := c.Get("request_body_hash"); exists {
 		if h, ok := hash.(string); ok {
@@ -63,7 +66,11 @@ func getRequestBodyHash(c *gin.Context) string {
 	if err != nil {
 		return ""
 	}
-	h := sha256.Sum256(body)
+	hashInput := body
+	if result := gjson.GetBytes(body, "messages"); result.Exists() {
+		hashInput = []byte(result.Raw)
+	}
+	h := sha256.Sum256(hashInput)
 	hashStr := hex.EncodeToString(h[:])
 	c.Set("request_body_hash", hashStr)
 	return hashStr
