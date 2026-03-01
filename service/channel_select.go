@@ -1,6 +1,8 @@
 package service
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 
 	"github.com/QuantumNous/new-api/common"
@@ -45,6 +47,28 @@ func (p *RetryParam) ResetRetryNextTry() {
 	p.resetNextTry = true
 }
 
+// getRequestBodyHash computes and caches the SHA256 hash of the request body.
+// Returns empty string if the body is unavailable.
+func getRequestBodyHash(c *gin.Context) string {
+	if hash, exists := c.Get("request_body_hash"); exists {
+		if h, ok := hash.(string); ok {
+			return h
+		}
+	}
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		return ""
+	}
+	body, err := storage.Bytes()
+	if err != nil {
+		return ""
+	}
+	h := sha256.Sum256(body)
+	hashStr := hex.EncodeToString(h[:])
+	c.Set("request_body_hash", hashStr)
+	return hashStr
+}
+
 // CacheGetRandomSatisfiedChannel tries to get a random channel that satisfies the requirements.
 // 尝试获取一个满足要求的随机渠道。
 //
@@ -84,6 +108,11 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 	var channel *model.Channel
 	var err error
 	selectGroup := param.TokenGroup
+
+	// Look up channels that previously produced empty answers for this request
+	requestHash := getRequestBodyHash(param.Ctx)
+	excludedChannels := model.GetExcludedChannels(requestHash)
+
 	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
 
 	if param.TokenGroup == "auto" {
@@ -115,7 +144,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, nil)
+			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, excludedChannels)
 			if channel == nil {
 				// Current group has no available channel for this model, try next group
 				// 当前分组没有该模型的可用渠道，尝试下一个分组
@@ -153,7 +182,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			break
 		}
 	} else {
-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), nil)
+		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), excludedChannels)
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}
