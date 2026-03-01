@@ -162,7 +162,15 @@ func isChannelExcluded(channelID int, excluded []int) bool {
 func GetRandomSatisfiedChannel(group string, model string, retry int, excludedChannels []int) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry)
+		ch, err := GetChannel(group, model, retry, excludedChannels)
+		if err != nil {
+			return nil, err
+		}
+		// If exclusion made all channels unavailable, fall back to no exclusion
+		if ch == nil && len(excludedChannels) > 0 {
+			return GetChannel(group, model, retry, nil)
+		}
+		return ch, err
 	}
 
 	channelSyncLock.RLock()
