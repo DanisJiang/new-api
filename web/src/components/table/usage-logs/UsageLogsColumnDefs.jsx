@@ -716,12 +716,13 @@ export const getLogsColumns = ({
               let useChannelStr = useChannel.join('->');
               content = t('渠道') + `：${useChannelStr}`;
             }
-            if (other.admin_info.empty_answer) {
+            if (other.admin_info.empty_answer || other.admin_info.duplicate_response) {
+              const tagLabel = other.admin_info.empty_answer ? t('空回复') : t('重复响应');
               return isAdminUser ? (
                 <div>
                   {content}
                   <br />
-                  <Tag color='red' size='small'>{t('空回复')}</Tag>
+                  <Tag color='red' size='small'>{tagLabel}</Tag>
                 </div>
               ) : <></>;
             }

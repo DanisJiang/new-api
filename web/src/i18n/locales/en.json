@@ -2037,6 +2037,8 @@
     "空回复": "Empty answer",
     "已排除": "Excluded",
     "空回复检测": "Empty answer detected",
+    "重复响应": "Duplicate response",
+    "重复响应检测": "Duplicate response detected",
     "空回复渠道排除": "Empty answer channel exclusion",
     "已排除渠道": "Excluded channels",
     "计费类型": "Billing type",
