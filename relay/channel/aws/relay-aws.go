@@ -286,7 +286,7 @@ func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (
 	if claudeInfo.StopReason == "end_turn" && claudeInfo.HasThinking && !claudeInfo.HasTextContent {
 		if requestHash, exists := c.Get("request_body_hash"); exists {
 			if hash, ok := requestHash.(string); ok && hash != "" {
-				modelPkg.RecordEmptyAnswer(hash, info.ChannelId, 5*time.Minute)
+				modelPkg.RecordEmptyAnswer(hash, info.ChannelId, 2*time.Hour)
 				c.Set("empty_answer_detected", true)
 			}
 		}
