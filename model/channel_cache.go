@@ -150,7 +150,16 @@ func SyncChannelCache(frequency int) {
 	}
 }
 
-func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel, error) {
+func isChannelExcluded(channelID int, excluded []int) bool {
+	for _, id := range excluded {
+		if id == channelID {
+			return true
+		}
+	}
+	return false
+}
+
+func GetRandomSatisfiedChannel(group string, model string, retry int, excludedChannels []int) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
 		return GetChannel(group, model, retry)
@@ -173,6 +182,9 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 	}
 
 	if len(channels) == 1 {
+		if isChannelExcluded(channels[0], excludedChannels) {
+			return nil, nil
+		}
 		if channel, ok := channelsIDM[channels[0]]; ok {
 			return channel, nil
 		}
@@ -181,12 +193,20 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 
 	uniquePriorities := make(map[int]bool)
 	for _, channelId := range channels {
+		if isChannelExcluded(channelId, excludedChannels) {
+			continue
+		}
 		if channel, ok := channelsIDM[channelId]; ok {
 			uniquePriorities[int(channel.GetPriority())] = true
 		} else {
 			return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
 		}
 	}
+	// If all channels are excluded, fall back to no exclusion
+	if len(uniquePriorities) == 0 && len(excludedChannels) > 0 {
+		return GetRandomSatisfiedChannel(group, model, retry, nil)
+	}
+
 	var sortedUniquePriorities []int
 	for priority := range uniquePriorities {
 		sortedUniquePriorities = append(sortedUniquePriorities, priority)
@@ -202,6 +222,9 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 	var sumWeight = 0
 	var targetChannels []*Channel
 	for _, channelId := range channels {
+		if isChannelExcluded(channelId, excludedChannels) {
+			continue
+		}
 		if channel, ok := channelsIDM[channelId]; ok {
 			if channel.GetPriority() == targetPriority {
 				sumWeight += channel.GetWeight()
