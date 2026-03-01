@@ -23,11 +23,11 @@ var channelSyncLock sync.RWMutex
 // retries with the same request, we exclude those channels from selection.
 var emptyAnswerCache sync.Map // map[string]*emptyAnswerRecord
 
-// duplicateResponseCache tracks token counts per (requestHash:channelId) to
-// detect channels that repeatedly produce the same truncated output. When a
-// second response with identical input+output token counts arrives within 10
-// minutes on the same channel, the channel is excluded for future requests.
-var duplicateResponseCache sync.Map // map[string]*tokenResponseRecord
+// duplicateResponseCache tracks token counts per channelId to detect channels
+// that repeatedly produce the same truncated output. When a response with
+// identical input+output token counts as any previous response within 10
+// minutes on the same channel arrives, the channel is excluded for that request.
+var duplicateResponseCache sync.Map // map[int]*tokenResponseHistory
 
 type emptyAnswerEntry struct {
 	Expiry    time.Time
@@ -44,6 +44,11 @@ type tokenResponseRecord struct {
 	OutputTokens int
 	Timestamp    time.Time
 	RequestID    string
+}
+
+type tokenResponseHistory struct {
+	mu      sync.Mutex
+	records []tokenResponseRecord
 }
 
 // RecordEmptyAnswer marks a channel as having produced an empty answer for the
@@ -124,36 +129,49 @@ func GetExcludedChannelDetails(requestHash string) map[int]string {
 }
 
 // CheckAndRecordDuplicateResponse checks whether the current response has the
-// same (inputTokens, outputTokens) as a previous response from the same channel
-// for the same request hash within the last 10 minutes. If so, it records the
-// channel exclusion (reusing RecordEmptyAnswer) and returns true.
+// same (inputTokens, outputTokens) as ANY previous response on the same channel
+// within the last 10 minutes (regardless of request content). If so, it records
+// the channel exclusion for the current requestHash and returns true.
 func CheckAndRecordDuplicateResponse(requestHash string, channelID int, inputTokens, outputTokens int, ttl time.Duration, sourceRequestID string) bool {
 	if requestHash == "" || outputTokens == 0 {
 		return false
 	}
 
-	key := fmt.Sprintf("%s:%d", requestHash, channelID)
 	now := time.Now()
+	cutoff := now.Add(-10 * time.Minute)
 
-	if prev, ok := duplicateResponseCache.Load(key); ok {
-		record := prev.(*tokenResponseRecord)
-		if now.Sub(record.Timestamp) <= 10*time.Minute &&
-			record.InputTokens == inputTokens &&
-			record.OutputTokens == outputTokens {
-			// Duplicate detected — exclude this channel
-			RecordEmptyAnswer(requestHash, channelID, ttl, sourceRequestID)
-			return true
+	actual, _ := duplicateResponseCache.LoadOrStore(channelID, &tokenResponseHistory{})
+	history := actual.(*tokenResponseHistory)
+
+	history.mu.Lock()
+	defer history.mu.Unlock()
+
+	// Purge expired entries and check for duplicates in one pass
+	matched := false
+	alive := history.records[:0]
+	for _, r := range history.records {
+		if r.Timestamp.Before(cutoff) {
+			continue // expired
+		}
+		alive = append(alive, r)
+		if r.InputTokens == inputTokens && r.OutputTokens == outputTokens {
+			matched = true
 		}
 	}
 
-	// Store/update current response record
-	duplicateResponseCache.Store(key, &tokenResponseRecord{
+	// Append current response
+	alive = append(alive, tokenResponseRecord{
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
 		Timestamp:    now,
 		RequestID:    sourceRequestID,
 	})
+	history.records = alive
 
+	if matched {
+		RecordEmptyAnswer(requestHash, channelID, ttl, sourceRequestID)
+		return true
+	}
 	return false
 }
 
