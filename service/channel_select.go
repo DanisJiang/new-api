@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -115,7 +114,6 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 	excludedChannels := model.GetExcludedChannels(requestHash)
 	if len(excludedChannels) > 0 {
 		param.Ctx.Set("empty_answer_excluded_channels", excludedChannels)
-		logger.LogWarn(param.Ctx, fmt.Sprintf("Excluding channels %v from selection (empty answer memory)", excludedChannels))
 	}
 
 	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)

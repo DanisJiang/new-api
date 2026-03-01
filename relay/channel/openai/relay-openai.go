@@ -197,8 +197,6 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			if hash, ok := requestHash.(string); ok && hash != "" {
 				modelPkg.RecordEmptyAnswer(hash, info.ChannelId, 5*time.Minute)
 				c.Set("empty_answer_detected", true)
-				logger.LogWarn(c, fmt.Sprintf("Empty answer detected on channel #%d: reasoning-only response (prompt=%d, completion=%d), channel excluded for this request",
-					info.ChannelId, usage.PromptTokens, usage.CompletionTokens))
 			}
 		}
 	}
